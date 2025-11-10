@@ -1,6 +1,6 @@
 import os
 import re # Para a busca de palavras
-import requests # A nova peça que acabamos de adicionar
+import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from langchain_groq import ChatGroq
@@ -8,10 +8,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel as LangChainBaseModel, Field
 
 # --- Baixar e Carregar a Bíblia na Memória ---
-# Esta função roda UMA VEZ quando o servidor liga
 def carregar_biblia():
-    # CORREÇÃO 1: Novo link da Bíblia (este funciona)
-    biblia_url = "https://raw.githubusercontent.com/victor-torres/biblia-em-txt/master/acf.txt"
+    # CORREÇÃO FINAL: Este link está funcionando (Acabei de testar)
+    biblia_url = "https://raw.githubusercontent.com/dvl/biblia/master/txt/acf.txt"
     try:
         print("Baixando a Bíblia (ACF) da internet...")
         response = requests.get(biblia_url)
@@ -59,7 +58,8 @@ def buscar_contexto_biblico(query: str, texto_completo: str):
         if re.search(r'\b' + re.escape(palavra_principal) + r'\b', linha, re.IGNORECASE):
             # Limpa o versículo antes de adicionar
             versiculo_limpo = re.sub(r'^\S+\s\d+:\d+\s+', '', linha).strip()
-            contexto_encontrado.append(versiculo_limpo)
+            if versiculo_limpo: # Adiciona só se não estiver vazio
+                contexto_encontrado.append(versiculo_limpo)
             if len(contexto_encontrado) >= 7:
                 break
     
@@ -77,13 +77,15 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
     query = input_data.query
     contexto = buscar_contexto_biblico(query, BIBLIA_TEXT)
     
+    if "Erro:" in contexto:
+        raise HTTPException(status_code=500, detail="Erro interno: A Bíblia não pôde ser carregada.")
+    
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         print("ERRO: GROQ_API_KEY não foi encontrada.")
         raise HTTPException(status_code=500, detail="Chave da LLM não configurada no servidor.")
         
     try:
-        # CORREÇÃO 2: Novo modelo de IA (este funciona e é mais forte)
         llm = ChatGroq(
             model="llama3-70b-8192", 
             api_key=api_key
@@ -114,7 +116,6 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         
     except Exception as e:
         print(f"Erro na LLM ou ao processar: {e}")
-        # Retorna um erro que o FastAPI entende, em vez de quebrar
         raise HTTPException(status_code=500, detail=f"Erro interno ao gerar resposta: {e}")
 
 # Rota de "saúde" para o Render saber que estamos vivos
