@@ -64,12 +64,11 @@ if "Erro:" not in BIBLIA_TEXT_RAW:
     BIBLIA_INDEXADA = processar_biblia(BIBLIA_TEXT_RAW)
 
 # Lista simples de "stop words" para melhorar a qualidade da busca
-# ATUALIZADA: Adicionei 'diz' e 'bíblia'
 STOP_WORDS = set([
     "de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "com", "não",
     "uma", "os", "na", "se", "nos", "como", "mas", "ao", "ele", "das", "à",
     "seu", "sua", "ou", "sobre", "qual", "foi", "ser", "por", "mais", "lhe",
-    "diz", "bíblia" # <-- Adicionado aqui
+    "diz", "bíblia" # Palavras inúteis para a busca
 ])
 
 # --- 3. Inicialização da API FastAPI ---
@@ -95,20 +94,18 @@ def buscar_contexto_biblico(query: str, biblia_processada: list):
     """
     print(f"Buscando contexto para: '{query}'")
     
-    # 1. Extrair palavras-chave da query (ignora stop words)
     palavras_query = re.findall(r'\b\w+\b', query.lower())
     
-    # ATUALIZADO: para 'len(p) >= 2' (para incluir "fé", "eu", etc.)
+    # Permite palavras de 2 letras (como 'fé')
     palavras_chave = [p for p in palavras_query if p not in STOP_WORDS and len(p) >= 2]
 
     if not palavras_chave:
-        palavras_chave = [p for p in palavras_query if p not in STOP_WORDS] # Pega qualquer uma
+        palavras_chave = [p for p in palavras_query if p not in STOP_WORDS]
         if not palavras_chave:
-            palavras_chave = palavras_query[:1] # Pega a primeira palavra
+            palavras_chave = palavras_query[:1] 
 
     print(f"Palavras-chave identificadas: {palavras_chave}")
 
-    # 2. Buscar nos versículos indexados
     contexto_encontrado = []
     textos_adicionados = set() 
 
@@ -127,12 +124,11 @@ def buscar_contexto_biblico(query: str, biblia_processada: list):
             texto_lower = texto_versiculo.lower()
             if any(re.search(r'\b' + re.escape(chave) + r'\b', texto_lower) for chave in palavras_chave):
                  if texto_versiculo not in textos_adicionados:
-                    contexto_encontrado.append(f"{ref}: {texto_vecicrculo}")
+                    contexto_encontrado.append(f"{ref}: {texto_versiculo}")
                     textos_adicionados.add(texto_versiculo)
                     if len(contexto_encontrado) >= 10: 
                         break 
 
-    # 3. Formata a saída
     if not contexto_encontrado:
         print("Nenhum contexto encontrado pela busca.")
         return "Nenhum versículo específico foi encontrado na Bíblia para esta consulta. Por favor, use seu conhecimento bíblico geral para responder."
@@ -161,10 +157,9 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
     try:
         llm = ChatGroq(
             # -----------------------------------------------------------------
-            # CORREÇÃO PRINCIPAL:
-            # O modelo 'llama3-70b-8192' foi aposentado.
-            # O substituto é 'llama-3-70b-8192' (com hífen).
-            model="llama-3-70b-8192", 
+            # CORREÇÃO FINAL (Desta vez, com base na documentação oficial):
+            # O nome correto do modelo Llama 3 70B é este:
+            model="llama-3.3-70b-versatile", 
             # -----------------------------------------------------------------
             api_key=api_key
         )
@@ -189,7 +184,7 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         prompt = ChatPromptTemplate.from_messages([("system", system_prompt), ("human", human_prompt)])
         chain = prompt | structured_llm
         
-        print("Invocando a LLM (Llama 3 70b - Novo) com contexto...")
+        print(f"Invocando a LLM ({llm.model_name}) com contexto...")
         resultado = await chain.ainvoke({"query": query})
         return resultado
         
@@ -200,7 +195,4 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
 # Rota de "saúde" para o Render saber que estamos vivos
 @app.get("/")
 def health_check():
-    # Esta rota foi a que recebeu o "405 Method Not Allowed", 
-    # o que é normal, pois o Render testa com "HEAD", mas nossa rota é "GET".
-    # Não é um problema.
     return {"status": "Pastor_AI está no ar!"}
