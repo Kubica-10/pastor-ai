@@ -15,7 +15,6 @@ def carregar_biblia_local():
     arquivo_nome = "biblia.txt"
     try:
         print(f"Carregando a Bíblia (local) do arquivo: {arquivo_nome}...")
-        # Abre o arquivo local que você enviou para o GitHub
         with open(arquivo_nome, "r", encoding="utf-8") as f:
             texto = f.read()
         print("Bíblia local carregada com sucesso.")
@@ -33,31 +32,25 @@ def processar_biblia(texto_completo: str):
     """
     Processa o texto puro da Bíblia e cria um "índice" em memória 
     (uma lista de tuplas) para busca rápida.
-    Formato: [ (referencia, texto_limpo), ... ]
     """
     print("Processando e indexando a Bíblia (executado 1 vez)...")
     biblia_indexada = []
-    # Regex para capturar a referência (Ex: "GN 1:1") e o texto
-    # Assumindo o formato: "GN 1:1 Texto do versículo"
     referencia_regex = re.compile(r'^(\S+\s\d+:\d+)\s+(.*)')
     
     linhas_processadas = 0
     for linha in texto_completo.splitlines():
         match = referencia_regex.match(linha)
         if match:
-            referencia = match.group(1) # "GN 1:1"
-            texto_versiculo = match.group(2).strip() # "No princípio..."
+            referencia = match.group(1)
+            texto_versiculo = match.group(2).strip()
             if texto_versiculo:
                 biblia_indexada.append((referencia, texto_versiculo))
                 linhas_processadas += 1
     
-    # Plano B: Se o regex falhar (formato do arquivo é diferente)
     if linhas_processadas == 0:
         print("AVISO: Regex não encontrou referências (Ex: GN 1:1). Indexando por linha simples.")
-        # Indexa por linha (sem referência formal)
         for i, linha in enumerate(texto_completo.splitlines()):
             texto_limpo = linha.strip()
-            # Ignora linhas muito curtas ou vazias
             if texto_limpo and len(texto_limpo) > 20: 
                 biblia_indexada.append((f"Linha {i+1}", texto_limpo))
 
@@ -65,18 +58,18 @@ def processar_biblia(texto_completo: str):
     return biblia_indexada
 
 # --- Variáveis Globais (Carregadas na inicialização) ---
-# Chama a função de leitura local
 BIBLIA_TEXT_RAW = carregar_biblia_local()
 BIBLIA_INDEXADA = []
 if "Erro:" not in BIBLIA_TEXT_RAW:
-    # Processa o texto e o armazena na memória RAM
     BIBLIA_INDEXADA = processar_biblia(BIBLIA_TEXT_RAW)
 
 # Lista simples de "stop words" para melhorar a qualidade da busca
+# ATUALIZADA: Adicionei 'diz' e 'bíblia'
 STOP_WORDS = set([
     "de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "com", "não",
     "uma", "os", "na", "se", "nos", "como", "mas", "ao", "ele", "das", "à",
-    "seu", "sua", "ou", "sobre", "qual", "foi", "ser", "por", "mais", "lhe"
+    "seu", "sua", "ou", "sobre", "qual", "foi", "ser", "por", "mais", "lhe",
+    "diz", "bíblia" # <-- Adicionado aqui
 ])
 
 # --- 3. Inicialização da API FastAPI ---
@@ -104,38 +97,38 @@ def buscar_contexto_biblico(query: str, biblia_processada: list):
     
     # 1. Extrair palavras-chave da query (ignora stop words)
     palavras_query = re.findall(r'\b\w+\b', query.lower())
-    palavras_chave = [p for p in palavras_query if p not in STOP_WORDS and len(p) > 2]
+    
+    # ATUALIZADO: para 'len(p) >= 2' (para incluir "fé", "eu", etc.)
+    palavras_chave = [p for p in palavras_query if p not in STOP_WORDS and len(p) >= 2]
 
     if not palavras_chave:
-        # Se todas forem stop words, pega as duas primeiras palavras
-        palavras_chave = palavras_query[:2] 
+        palavras_chave = [p for p in palavras_query if p not in STOP_WORDS] # Pega qualquer uma
+        if not palavras_chave:
+            palavras_chave = palavras_query[:1] # Pega a primeira palavra
 
     print(f"Palavras-chave identificadas: {palavras_chave}")
 
     # 2. Buscar nos versículos indexados
     contexto_encontrado = []
-    textos_adicionados = set() # Para evitar versículos duplicados
+    textos_adicionados = set() 
 
     # Passa 1: Tenta encontrar versículos que contenham TODAS as palavras-chave
     for ref, texto_versiculo in biblia_processada:
         texto_lower = texto_versiculo.lower()
-        # Verifica se todas as palavras-chave estão no versículo
         if all(re.search(r'\b' + re.escape(chave) + r'\b', texto_lower) for chave in palavras_chave):
             if texto_versiculo not in textos_adicionados:
                 contexto_encontrado.append(f"{ref}: {texto_versiculo}")
                 textos_adicionados.add(texto_versiculo)
 
-    # Passa 2: Se não achar nada, tenta com QUALQUER palavra-chave (mais flexível)
+    # Passa 2: Se não achar nada, tenta com QUALQUER palavra-chave
     if not contexto_encontrado:
         print("Busca por 'TODAS' palavras falhou. Tentando 'QUALQUER' palavra...")
         for ref, texto_versiculo in biblia_processada:
             texto_lower = texto_versiculo.lower()
-            # Verifica se alguma das palavras-chave está no versículo
             if any(re.search(r'\b' + re.escape(chave) + r'\b', texto_lower) for chave in palavras_chave):
                  if texto_versiculo not in textos_adicionados:
-                    contexto_encontrado.append(f"{ref}: {texto_versiculo}")
+                    contexto_encontrado.append(f"{ref}: {texto_vecicrculo}")
                     textos_adicionados.add(texto_versiculo)
-                    # Limita os resultados para não sobrecarregar
                     if len(contexto_encontrado) >= 10: 
                         break 
 
@@ -144,8 +137,7 @@ def buscar_contexto_biblico(query: str, biblia_processada: list):
         print("Nenhum contexto encontrado pela busca.")
         return "Nenhum versículo específico foi encontrado na Bíblia para esta consulta. Por favor, use seu conhecimento bíblico geral para responder."
 
-    # Limita os resultados para não sobrecarregar o prompt da LLM
-    contexto_final = "\n".join(contexto_encontrado[:7]) # Pega os 7 melhores
+    contexto_final = "\n".join(contexto_encontrado[:7])
     print(f"Encontrados {len(contexto_encontrado)} versículos. Enviando 7 para a LLM.")
     return contexto_final
 
@@ -155,12 +147,10 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
     
     query = input_data.query
     
-    # Verifica se a bíblia foi carregada e indexada na inicialização
     if not BIBLIA_INDEXADA:
         print("ERRO: A Bíblia não foi carregada ou indexada na inicialização.")
         raise HTTPException(status_code=500, detail="Erro interno: A Bíblia não pôde ser carregada.")
     
-    # Passa a lista indexada (rápido) em vez do texto puro (lento)
     contexto = buscar_contexto_biblico(query, BIBLIA_INDEXADA)
     
     api_key = os.environ.get("GROQ_API_KEY")
@@ -170,10 +160,14 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         
     try:
         llm = ChatGroq(
-            model="llama3-70b-8192", 
+            # -----------------------------------------------------------------
+            # CORREÇÃO PRINCIPAL:
+            # O modelo 'llama3-70b-8192' foi aposentado.
+            # O substituto é 'llama-3-70b-8192' (com hífen).
+            model="llama-3-70b-8192", 
+            # -----------------------------------------------------------------
             api_key=api_key
         )
-        # Pede para a LLM formatar a saída de acordo com a classe RespostaBiblica
         structured_llm = llm.with_structured_output(RespostaBiblica)
         
         system_prompt = f"""
@@ -183,7 +177,7 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         
         Sua missão é:
         1. Analisar a PERGUNTA do usuário: "{query}"
-        2. Usar **ESTRITAMENTE** os versículos do CONTEXTO BÍBLICO para formular uma resposta (seja um sermão, uma explicação ou conselhos).
+        2. Usar **ESTRITAMENTE** os versículos do CONTEXTO BÍBLICO para formular uma resposta.
         3. Para o campo 'versiculos_encontrados', liste as referências EXATAS (ex: "GN 1:1" ou "Linha 123") dos versículos que você usou.
         4. Se o CONTEXTO BÍBLICO for "Nenhum versículo...", informe ao usuário que você usará o conhecimento bíblico geral para responder.
         5. Você DEVE seguir o formato de saída JSON.
@@ -195,8 +189,7 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         prompt = ChatPromptTemplate.from_messages([("system", system_prompt), ("human", human_prompt)])
         chain = prompt | structured_llm
         
-        print("Invocando a LLM (Llama 3 70b) com contexto...")
-        # Usamos ainoke (assíncrono) pois estamos em um 'async def'
+        print("Invocando a LLM (Llama 3 70b - Novo) com contexto...")
         resultado = await chain.ainvoke({"query": query})
         return resultado
         
@@ -207,4 +200,7 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
 # Rota de "saúde" para o Render saber que estamos vivos
 @app.get("/")
 def health_check():
+    # Esta rota foi a que recebeu o "405 Method Not Allowed", 
+    # o que é normal, pois o Render testa com "HEAD", mas nossa rota é "GET".
+    # Não é um problema.
     return {"status": "Pastor_AI está no ar!"}
