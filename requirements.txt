@@ -2,5 +2,6 @@ fastapi
 uvicorn
 langchain-groq
 langchain
+langchain-core
 pydantic
 requests
