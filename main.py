@@ -6,6 +6,10 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel as LangChainBaseModel, Field
 
+# ### NOVO 1: Importar o CORSMiddleware ###
+from fastapi.middleware.cors import CORSMiddleware
+
+
 # --- 1. Carregamento da Bíblia (Lendo o arquivo local) ---
 def carregar_biblia_local():
     """
@@ -63,12 +67,11 @@ BIBLIA_INDEXADA = []
 if "Erro:" not in BIBLIA_TEXT_RAW:
     BIBLIA_INDEXADA = processar_biblia(BIBLIA_TEXT_RAW)
 
-# Lista simples de "stop words" para melhorar a qualidade da busca
 STOP_WORDS = set([
     "de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "com", "não",
     "uma", "os", "na", "se", "nos", "como", "mas", "ao", "ele", "das", "à",
     "seu", "sua", "ou", "sobre", "qual", "foi", "ser", "por", "mais", "lhe",
-    "diz", "bíblia" # Palavras inúteis para a busca
+    "diz", "bíblia"
 ])
 
 # --- 3. Inicialização da API FastAPI ---
@@ -76,6 +79,23 @@ app = FastAPI(
     title="Pastor_AI API",
     description="Um Agente de IA para sermões baseados na Bíblia."
 )
+
+# ### NOVO 2: Configurar as origens permitidas (CORS) ###
+# Lista dos sites que podem fazer requisições para sua API
+origins = [
+    "https://pastor-ai-frontend.onrender.com", # A URL do seu site
+    "http://localhost", # Para testes locais no futuro
+    "http://localhost:8080", # Para testes locais no futuro
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # Permite as origens da lista
+    allow_credentials=True,
+    allow_methods=["*"], # Permite todos os métodos (GET, POST, etc)
+    allow_headers=["*"], # Permite todos os cabeçalhos
+)
+
 
 # --- 4. Modelos de Dados (Pydantic) ---
 class QueryInput(BaseModel):
@@ -89,20 +109,13 @@ class RespostaBiblica(LangChainBaseModel):
 
 # --- 5. Função de Busca (O "RAG-lite" Otimizado) ---
 def buscar_contexto_biblico(query: str, biblia_processada: list):
-    """
-    Busca no índice em memória (BIBLIA_INDEXADA) pelos versículos relevantes.
-    """
     print(f"Buscando contexto para: '{query}'")
     
     palavras_query = re.findall(r'\b\w+\b', query.lower())
-    
-    # Permite palavras de 2 letras (como 'fé')
-    palavras_chave = [p for p in palavras_query if p not in STOP_WORDS and len(p) >= 2]
+    palavras_chave = [p for p in palavras_query if p not in STOP_WORDS and len(p) >= 2] 
 
     if not palavras_chave:
-        palavras_chave = [p for p in palavras_query if p not in STOP_WORDS]
-        if not palavras_chave:
-            palavras_chave = palavras_query[:1] 
+        palavras_chave = palavras_query[:1] 
 
     print(f"Palavras-chave identificadas: {palavras_chave}")
 
@@ -144,23 +157,17 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
     query = input_data.query
     
     if not BIBLIA_INDEXADA:
-        print("ERRO: A Bíblia não foi carregada ou indexada na inicialização.")
         raise HTTPException(status_code=500, detail="Erro interno: A Bíblia não pôde ser carregada.")
     
     contexto = buscar_contexto_biblico(query, BIBLIA_INDEXADA)
     
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        print("ERRO: GROQ_API_KEY não foi encontrada.")
         raise HTTPException(status_code=500, detail="Chave da LLM não configurada no servidor.")
         
     try:
         llm = ChatGroq(
-            # -----------------------------------------------------------------
-            # CORREÇÃO FINAL (Desta vez, com base na documentação oficial):
-            # O nome correto do modelo Llama 3 70B é este:
             model="llama-3.3-70b-versatile", 
-            # -----------------------------------------------------------------
             api_key=api_key
         )
         structured_llm = llm.with_structured_output(RespostaBiblica)
@@ -174,8 +181,7 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         1. Analisar a PERGUNTA do usuário: "{query}"
         2. Usar **ESTRITAMENTE** os versículos do CONTEXTO BÍBLICO para formular uma resposta.
         3. Para o campo 'versiculos_encontrados', liste as referências EXATAS (ex: "GN 1:1" ou "Linha 123") dos versículos que você usou.
-        4. Se o CONTEXTO BÍBLICO for "Nenhum versículo...", informe ao usuário que você usará o conhecimento bíblico geral para responder.
-        5. Você DEVE seguir o formato de saída JSON.
+        4. Você DEVE seguir o formato de saída JSON.
         
         CONTEXTO BÍBLICO FORNECIDO (Sua única fonte):
         {contexto}
@@ -192,7 +198,7 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         print(f"Erro na LLM ou ao processar: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno ao gerar resposta: {e}")
 
-# Rota de "saúde" para o Render saber que estamos vivos
+# ### NOVO 3: Adicionar uma rota de 'health check' para o CORS (opcional) ###
 @app.get("/")
 def health_check():
     return {"status": "Pastor_AI está no ar!"}
