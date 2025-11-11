@@ -3,9 +3,6 @@ uvicorn
 langchain-groq
 langchain-core
 pydantic==1.10.24
-
---- Novas Ferramentas V2 ---
-
 langchain-text-splitters
 langchain-huggingface
 sentence-transformers
