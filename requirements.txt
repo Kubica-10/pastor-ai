@@ -10,3 +10,4 @@ langchain-text-splitters
 langchain-huggingface
 sentence-transformers
 faiss-cpu
+langchain_community
