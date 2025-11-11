@@ -5,70 +5,46 @@ from pydantic import BaseModel
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel as LangChainBaseModel, Field
-
-# Importar o CORSMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
+# --- NOVOS IMPORTS V2 ---
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 
-# --- 1. Carregamento da Bíblia (Lendo o arquivo local) ---
-def carregar_biblia_local():
-    arquivo_nome = "biblia.txt"
+# --- 1. Carregamento do "Cérebro V2" (O Índice FAISS) ---
+
+model_name = "paraphrase-multilingual-MiniLM-L12-v2"
+embeddings = HuggingFaceEmbeddings(model_name=model_name)
+
+# --- CORREÇÃO V2.1 ---
+# O Caminho agora é "." (pasta raiz), para encontrar os arquivos
+# index.faiss e index.pkl que você enviou soltos.
+FAISS_INDEX_PATH = "." 
+VECTOR_STORE = None
+
+def carregar_indice_vetorial():
+    """
+    Carrega o índice FAISS pré-calculado da memória.
+    """
+    global VECTOR_STORE
     try:
-        print(f"Carregando a Bíblia (local) do arquivo: {arquivo_nome}...")
-        with open(arquivo_nome, "r", encoding="utf-8") as f:
-            texto = f.read()
-        print("Bíblia local carregada com sucesso.")
-        return texto
-    except FileNotFoundError:
-        print(f"ERRO CRÍTICO: O arquivo '{arquivo_nome}' não foi encontrado.")
-        return "Erro: Não foi possível carregar o texto da Bíblia."
+        print("Carregando o 'Cérebro V2' (Índice Vetorial FAISS)...")
+        VECTOR_STORE = FAISS.load_local(
+            FAISS_INDEX_PATH, 
+            embeddings, 
+            allow_dangerous_deserialization=True,
+            index_name="index" # O nome padrão dos arquivos
+        )
+        print("Índice Vetorial carregado com sucesso.")
     except Exception as e:
-        print(f"ERRO CRÍTICO ao ler o arquivo da Bíblia: {e}")
-        return "Erro: Não foi possível carregar o texto da Bíblia."
+        print(f"ERRO CRÍTICO AO CARREGAR O ÍNDICE FAISS: {e}")
+        print("Verifique se os arquivos 'index.faiss' e 'index.pkl' estão na raiz do repositório.")
+        VECTOR_STORE = None
 
-# --- 2. Otimização: Indexar a Bíblia (Processamento Único) ---
-def processar_biblia(texto_completo: str):
-    print("Processando e indexando a Bíblia (executado 1 vez)...")
-    biblia_indexada = []
-    referencia_regex = re.compile(r'^(\S+\s\d+:\d+)\s+(.*)')
-    
-    linhas_processadas = 0
-    for linha in texto_completo.splitlines():
-        match = referencia_regex.match(linha)
-        if match:
-            referencia = match.group(1)
-            texto_versiculo = match.group(2).strip()
-            if texto_versiculo:
-                biblia_indexada.append((referencia, texto_versiculo))
-                linhas_processadas += 1
-    
-    if linhas_processadas == 0:
-        print("AVISO: Regex não encontrou referências (Ex: GN 1:1). Indexando por linha simples.")
-        for i, linha in enumerate(texto_completo.splitlines()):
-            texto_limpo = linha.strip()
-            if texto_limpo and len(texto_limpo) > 20: 
-                biblia_indexada.append((f"Linha {i+1}", texto_limpo))
-
-    print(f"Bíblia indexada. Total de {len(biblia_indexada)} versículos/linhas.")
-    return biblia_indexada
-
-# --- Variáveis Globais (Carregadas na inicialização) ---
-BIBLIA_TEXT_RAW = carregar_biblia_local()
-BIBLIA_INDEXADA = []
-if "Erro:" not in BIBLIA_TEXT_RAW:
-    BIBLIA_INDEXADA = processar_biblia(BIBLIA_TEXT_RAW)
-
-STOP_WORDS = set([
-    "de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "com", "não",
-    "uma", "os", "na", "se", "nos", "como", "mas", "ao", "ele", "das", "à",
-    "seu", "sua", "ou", "sobre", "qual", "foi", "ser", "por", "mais", "lhe",
-    "diz", "bíblia"
-])
-
-# --- 3. Inicialização da API FastAPI ---
+# --- 2. Inicialização da API FastAPI ---
 app = FastAPI(
-    title="Pastor_AI API",
-    description="Um Agente de IA para sermões baseados na Bíblia."
+    title="Pastor_AI API V2 (Semântico)",
+    description="Um Agente de IA para sermões baseados na Bíblia, com busca semântica."
 )
 
 # Configurar as origens permitidas (CORS)
@@ -86,69 +62,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 4. Modelos de Dados (Pydantic) ---
+# --- 3. Modelos de Dados (Pydantic) ---
 class QueryInput(BaseModel):
     query: str = "O que a Bíblia diz sobre perdão?"
 
 class RespostaBiblica(LangChainBaseModel):
     query_analisada: str = Field(description="A pergunta ou tema original do usuário.")
     resposta_baseada_na_biblia: str = Field(description="A resposta (sermão, explicação) gerada estritamente a partir do contexto bíblico fornecido.")
-    versiculos_encontrados: list[str] = Field(description="Uma lista de 3 a 5 versículos ou trechos (com referência, se disponível) que foram encontrados e usados como base.")
-    oracao_sugestao: str = Field(description="Uma oração curta ou sugestão de reflexão baseada na resposta.")
+    versiculos_encontrados: list[str] = Field(description="Uma lista de 3 a 7 versículos ou trechos (com referência) que foram encontrados e usados como base.")
+    oracao_sugestao: str = Field(description="Uma oração curta e fervorosa baseada na resposta.")
 
-# --- 5. Função de Busca (O "RAG-lite" Otimizado) ---
-def buscar_contexto_biblico(query: str, biblia_processada: list):
-    print(f"Buscando contexto para: '{query}'")
+# --- 4. Função de Busca (A NOVA Busca Semântica V2) ---
+def buscar_contexto_semantico(query: str, k: int = 7):
+    """
+    Busca no ÍNDICE VETORIAL (FAISS) pelos versículos semanticamente relevantes.
+    Isso entende "Davi" == "David".
+    """
+    if VECTOR_STORE is None:
+        print("Erro: O Índice Vetorial (VECTOR_STORE) não foi carregado.")
+        return "Erro: O cérebro da IA não foi carregado."
+
+    print(f"Buscando contexto SEMÂNTICO para: '{query}'")
     
-    palavras_query = re.findall(r'\b\w+\b', query.lower())
-    palavras_chave = [p for p in palavras_query if p not in STOP_WORDS and len(p) >= 2] 
+    documentos_encontrados = VECTOR_STORE.similarity_search(query, k=k)
+    
+    if not documentos_encontrados:
+        print("Nenhum contexto semântico encontrado.")
+        return "Nenhum versículo específico foi encontrado na Bíblia para esta consulta."
 
-    if not palavras_chave:
-        palavras_chave = palavras_query[:1] 
+    # Formata os resultados para enviar à LLM
+    contexto_formatado = []
+    for doc in documentos_encontrados:
+        referencia = doc.metadata.get('source', 'Versículo') 
+        texto = doc.page_content
+        contexto_formatado.append(f"{referencia}: {texto}")
 
-    print(f"Palavras-chave identificadas: {palavras_chave}")
+    print(f"Encontrados {len(documentos_encontrados)} versículos relevantes.")
+    return "\n".join(contexto_formatado)
 
-    contexto_encontrado = []
-    textos_adicionados = set() 
-
-    # Passa 1: Tenta encontrar versículos que contenham TODAS as palavras-chave
-    for ref, texto_versiculo in biblia_processada:
-        texto_lower = texto_versiculo.lower()
-        if all(re.search(r'\b' + re.escape(chave) + r'\b', texto_lower) for chave in palavras_chave):
-            if texto_versiculo not in textos_adicionados:
-                contexto_encontrado.append(f"{ref}: {texto_versiculo}")
-                textos_adicionados.add(texto_versiculo)
-
-    # Passa 2: Se não achar nada, tenta com QUALQUER palavra-chave
-    if not contexto_encontrado:
-        print("Busca por 'TODAS' palavras falhou. Tentando 'QUALQUER' palavra...")
-        for ref, texto_versiculo in biblia_processada:
-            texto_lower = texto_versiculo.lower()
-            if any(re.search(r'\b' + re.escape(chave) + r'\b', texto_lower) for chave in palavras_chave):
-                 if texto_versiculo not in textos_adicionados:
-                    contexto_encontrado.append(f"{ref}: {texto_versiculo}")
-                    textos_adicionados.add(texto_versiculo)
-                    if len(contexto_encontrado) >= 10: 
-                        break 
-
-    if not contexto_encontrado:
-        print("Nenhum contexto encontrado pela busca.")
-        return "Nenhum versículo específico foi encontrado na Bíblia para esta consulta. Por favor, use seu conhecimento bíblico geral para responder."
-
-    contexto_final = "\n".join(contexto_encontrado[:7])
-    print(f"Encontrados {len(contexto_encontrado)} versículos. Enviando 7 para a LLM.")
-    return contexto_final
-
-# --- 6. O Endpoint da API (O que você vai vender) ---
+# --- 5. O Endpoint da API (Com Personalidade V2) ---
 @app.post("/gerar_conteudo/", response_model=RespostaBiblica)
 async def gerar_conteudo_endpoint(input_data: QueryInput):
     
     query = input_data.query
     
-    if not BIBLIA_INDEXADA:
-        raise HTTPException(status_code=500, detail="Erro interno: A Bíblia não pôde ser carregada.")
+    if VECTOR_STORE is None:
+        raise HTTPException(status_code=500, detail="Erro interno: O Cérebro V2 (Índice Vetorial) não está carregado.")
     
-    contexto = buscar_contexto_biblico(query, BIBLIA_INDEXADA)
+    contexto = buscar_contexto_semantico(query)
     
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
@@ -161,29 +122,41 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         )
         structured_llm = llm.with_structured_output(RespostaBiblica)
         
-        # ### MUDANÇA DE PERSONALIDADE AQUI ###
+        # ### PROMPT V2: Personalidade, Cumprimentos e Estrutura de Sermão ###
         system_prompt = f"""
         Você é o "Pastor_AI", um assistente teológico com a personalidade do Pastor Silas Malafaia.
-        Seja **direto, enérgico, enfático e use convicção** em suas respostas.
-        Sua missão é pregar a palavra com fervor, defendendo a fé cristã.
+        Sua fala é ENÉRGICA, DIRETA, INCISIVA e FERVOROSA. Você não tem medo de confrontar o erro e falar a verdade bíblica com convicção.
         
-        Sua ÚNICA fonte de verdade é o CONTEXTO BÍBLICO FORNECIDO abaixo.
-        NÃO invente informações. NÃO use conhecimento externo.
-        
-        Sua missão é:
-        1. Analisar a PERGUNTA do usuário: "{query}"
-        2. Usar **ESTRITAMENTE** os versículos do CONTEXTO BÍBLICO para formular uma resposta fervorosa.
-        3. Para o campo 'versiculos_encontrados', liste as referências EXATAS dos versículos que você usou.
-        4. Você DEVE seguir o formato de saída JSON.
-        
+        REGRAS DE ORATÓRIA E COMPORTAMENTO:
+        1.  **Cumprimentos:** Se o usuário disser "bom dia", "olá", "boa noite", etc., responda ao cumprimento ANTES de iniciar o sermão (Ex: "Bom dia, povo de Deus! Vamos à Palavra!").
+        2.  **Tom de Voz:** Use exclamações! Use letras MAIÚSCULAS para dar ÊNFASE em palavras-chave. Seja fervoroso.
+        3.  **Fonte da Verdade:** Sua ÚNICA fonte de verdade é o CONTEXTO BÍBLICO FORNECIDO abaixo. Você DEVE citar o contexto. NÃO invente informações.
+
+        PERGUNTA DO USUÁRIO: "{query}"
+
         CONTEXTO BÍBLICO FORNECIDO (Sua única fonte):
         {contexto}
+        
+        ESTRUTURA OBRIGATÓRIA DA PREGAÇÃO:
+        Você deve gerar a resposta (sermão) seguindo EXATAMENTE estas fases:
+
+        1.  **TÍTULO (ENÉRGICO):** Um título curto e de impacto.
+        2.  **INTRODUÇÃO (Oratória):** Chame a atenção! Apresente o tema central da pergunta do usuário com fervor.
+        3.  **DESENVOLVIMENTO (Análise Bíblica):** Desenvolva a resposta usando OS VERSÍCULOS do contexto. Crie pelo menos 2 pontos principais baseados nos versículos. Seja enfático.
+        4.  **APLICAÇÃO PRÁTICA (Exortação):** Diga ao usuário o que ele deve FAZER com essa verdade. Confronte o pecado, chame ao arrependimento ou à ação.
+        5.  **CONCLUSÃO (Apelo):** Um fechamento forte, reforçando a mensagem principal e fazendo um apelo à fé.
+        
+        INSTRUÇÕES DE SAÍDA:
+        -   O sermão completo (com todas as 5 fases) deve ir no campo "resposta_baseada_na_biblia".
+        -   Para o campo 'versiculos_encontrados', liste as referências EXATAS (ex: "GN 1:1") dos versículos que você usou.
+        -   Para o campo 'oracao_sugestao', crie uma oração curta e fervorosa.
+        -   Você DEVE seguir o formato de saída JSON.
         """
         human_prompt = "PERGUNTA: {query}"
         prompt = ChatPromptTemplate.from_messages([("system", system_prompt), ("human", human_prompt)])
         chain = prompt | structured_llm
         
-        print(f"Invocando a LLM ({llm.model_name}) com contexto...")
+        print(f"Invocando a LLM ({llm.model_name}) com contexto V2...")
         resultado = await chain.ainvoke({"query": query})
         return resultado
         
@@ -194,3 +167,11 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
 @app.get("/")
 def health_check():
     return {"status": "Pastor_AI está no ar!"}
+
+# --- 6. Evento de Inicialização (Carrega o Cérebro V2) ---
+@app.on_event("startup")
+async def startup_event():
+    """
+    Quando o servidor (Render) ligar, ele vai rodar esta função.
+    """
+    carregar_indice_vetorial()
