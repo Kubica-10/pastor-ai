@@ -6,16 +6,12 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel as LangChainBaseModel, Field
 
-# ### NOVO 1: Importar o CORSMiddleware ###
+# Importar o CORSMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
 
 # --- 1. Carregamento da Bíblia (Lendo o arquivo local) ---
 def carregar_biblia_local():
-    """
-    Lê o arquivo 'biblia.txt' local (que está no repositório) 
-    para a memória.
-    """
     arquivo_nome = "biblia.txt"
     try:
         print(f"Carregando a Bíblia (local) do arquivo: {arquivo_nome}...")
@@ -25,7 +21,6 @@ def carregar_biblia_local():
         return texto
     except FileNotFoundError:
         print(f"ERRO CRÍTICO: O arquivo '{arquivo_nome}' não foi encontrado.")
-        print("Certifique-se que 'biblia.txt' está no mesmo diretório que 'main.py' no GitHub.")
         return "Erro: Não foi possível carregar o texto da Bíblia."
     except Exception as e:
         print(f"ERRO CRÍTICO ao ler o arquivo da Bíblia: {e}")
@@ -33,10 +28,6 @@ def carregar_biblia_local():
 
 # --- 2. Otimização: Indexar a Bíblia (Processamento Único) ---
 def processar_biblia(texto_completo: str):
-    """
-    Processa o texto puro da Bíblia e cria um "índice" em memória 
-    (uma lista de tuplas) para busca rápida.
-    """
     print("Processando e indexando a Bíblia (executado 1 vez)...")
     biblia_indexada = []
     referencia_regex = re.compile(r'^(\S+\s\d+:\d+)\s+(.*)')
@@ -80,22 +71,20 @@ app = FastAPI(
     description="Um Agente de IA para sermões baseados na Bíblia."
 )
 
-# ### NOVO 2: Configurar as origens permitidas (CORS) ###
-# Lista dos sites que podem fazer requisições para sua API
+# Configurar as origens permitidas (CORS)
 origins = [
-    "https://pastor-ai-frontend.onrender.com", # A URL do seu site
-    "http://localhost", # Para testes locais no futuro
-    "http://localhost:8080", # Para testes locais no futuro
+    "https://pastor-ai-frontend.onrender.com", 
+    "http://localhost",
+    "http://localhost:8080",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, # Permite as origens da lista
+    allow_origins=origins, 
     allow_credentials=True,
-    allow_methods=["*"], # Permite todos os métodos (GET, POST, etc)
-    allow_headers=["*"], # Permite todos os cabeçalhos
+    allow_methods=["*"], 
+    allow_headers=["*"],
 )
-
 
 # --- 4. Modelos de Dados (Pydantic) ---
 class QueryInput(BaseModel):
@@ -172,15 +161,19 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         )
         structured_llm = llm.with_structured_output(RespostaBiblica)
         
+        # ### MUDANÇA DE PERSONALIDADE AQUI ###
         system_prompt = f"""
-        Você é o "Pastor_AI", um assistente teológico especialista na Bíblia.
+        Você é o "Pastor_AI", um assistente teológico com a personalidade do Pastor Silas Malafaia.
+        Seja **direto, enérgico, enfático e use convicção** em suas respostas.
+        Sua missão é pregar a palavra com fervor, defendendo a fé cristã.
+        
         Sua ÚNICA fonte de verdade é o CONTEXTO BÍBLICO FORNECIDO abaixo.
         NÃO invente informações. NÃO use conhecimento externo.
         
         Sua missão é:
         1. Analisar a PERGUNTA do usuário: "{query}"
-        2. Usar **ESTRITAMENTE** os versículos do CONTEXTO BÍBLICO para formular uma resposta.
-        3. Para o campo 'versiculos_encontrados', liste as referências EXATAS (ex: "GN 1:1" ou "Linha 123") dos versículos que você usou.
+        2. Usar **ESTRITAMENTE** os versículos do CONTEXTO BÍBLICO para formular uma resposta fervorosa.
+        3. Para o campo 'versiculos_encontrados', liste as referências EXATAS dos versículos que você usou.
         4. Você DEVE seguir o formato de saída JSON.
         
         CONTEXTO BÍBLICO FORNECIDO (Sua única fonte):
@@ -198,7 +191,6 @@ async def gerar_conteudo_endpoint(input_data: QueryInput):
         print(f"Erro na LLM ou ao processar: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno ao gerar resposta: {e}")
 
-# ### NOVO 3: Adicionar uma rota de 'health check' para o CORS (opcional) ###
 @app.get("/")
 def health_check():
     return {"status": "Pastor_AI está no ar!"}
